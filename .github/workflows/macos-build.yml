@@ -1,4 +1,4 @@
-name: macOS Build
+name: MacOS Build
 
 on:
   push:
@@ -37,6 +37,13 @@ jobs:
         mkdir -p LaserGRBL.app/Contents/MacOS
         mkdir -p LaserGRBL.app/Contents/Resources
         
+        # Copy icon file if it exists
+        if [ -f "LaserGRBL/LaserGRBL.icns" ]; then
+          cp "LaserGRBL/LaserGRBL.icns" "LaserGRBL.app/Contents/Resources/" || echo "Failed to copy icon file"
+        else
+          echo "Warning: LaserGRBL.icns not found in LaserGRBL/"
+        fi
+        
         # Create Info.plist
         cat > LaserGRBL.app/Contents/Info.plist << EOL
 <?xml version="1.0" encoding="UTF-8"?>
@@ -67,22 +74,18 @@ EOL
           cp "LaserGRBL/bin/Release/LaserGRBL.exe" "LaserGRBL.app/Contents/MacOS/" || echo "Failed to copy LaserGRBL.exe"
         else
           echo "Warning: LaserGRBL.exe not found"
-          # Continue despite error
         fi
 
-        # Copy DLLs if they exist, ignore if not found
         if ls LaserGRBL/bin/Release/*.dll 1> /dev/null 2>&1; then
           cp LaserGRBL/bin/Release/*.dll LaserGRBL.app/Contents/MacOS/ || echo "Warning: Some DLLs might not have copied"
         else
           echo "No DLL files found in Release directory"
-          # Continue despite no DLLs
         fi
         
         # Create launcher script
         cat > LaserGRBL.app/Contents/MacOS/LaserGRBL << EOL
 #!/bin/bash
 DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-# Add Mono runtime path to ensure dependencies are found
 export DYLD_FALLBACK_LIBRARY_PATH=/Library/Frameworks/Mono.framework/Versions/Current/lib:$DYLD_FALLBACK_LIBRARY_PATH
 exec mono "\$DIR/LaserGRBL.exe"
 EOL
@@ -92,11 +95,13 @@ EOL
         # List contents of the app bundle for debugging
         echo "Contents of LaserGRBL.app/Contents/MacOS:"
         ls -la LaserGRBL.app/Contents/MacOS/
+        echo "Contents of LaserGRBL.app/Contents/Resources:"
+        ls -la LaserGRBL.app/Contents/Resources/
     
     - name: Upload artifact
-      if: always()  # Try to upload even if previous steps failed
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: LaserGRBL-macOS
         path: LaserGRBL.app
-        if-no-files-found: warn  # Don't fail if no files are found
+        if-no-files-found: warn
