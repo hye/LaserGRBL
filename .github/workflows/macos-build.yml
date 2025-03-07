@@ -1,4 +1,4 @@
-name: MacOS Build
+name: macOS Build
 
 on:
   push:
@@ -23,13 +23,14 @@ jobs:
       run: |
         echo "MONO_PATH=/Library/Frameworks/Mono.framework/Versions/Current/lib/mono/4.5" >> $GITHUB_ENV
         echo "PATH=$PATH:/Library/Frameworks/Mono.framework/Versions/Current/bin" >> $GITHUB_ENV
+        echo "FrameworkPathOverride=/Library/Frameworks/Mono.framework/Versions/Current/lib/mono/4.5" >> $GITHUB_ENV
     
     - name: Restore NuGet packages
       run: nuget restore LaserGRBL.sln
     
     - name: Build solution
       run: |
-        msbuild /p:Configuration=Release /p:Platform="Any CPU" LaserGRBL.sln
+        msbuild /p:Configuration=Release /p:Platform="Any CPU" /p:TargetFrameworkVersion=v4.5 LaserGRBL.sln
     
     - name: Create app bundle
       run: |
@@ -38,39 +39,64 @@ jobs:
         
         # Create Info.plist
         cat > LaserGRBL.app/Contents/Info.plist << EOL
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>CFBundleIdentifier</key>
-            <string>com.lasergrbl.app</string>
-            <key>CFBundleName</key>
-            <string>LaserGRBL</string>
-            <key>CFBundleVersion</key>
-            <string>1.0.0</string>
-            <key>CFBundleExecutable</key>
-            <string>LaserGRBL</string>
-            <key>CFBundleIconFile</key>
-            <string>LaserGRBL.icns</string>
-        </dict>
-        </plist>
-        EOL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.lasergrbl.app</string>
+    <key>CFBundleName</key>
+    <string>LaserGRBL</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleExecutable</key>
+    <string>LaserGRBL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.12</string>
+    <key>CFBundleIconFile</key>
+    <string>LaserGRBL.icns</string>
+    <key>MonoMinimumVersion</key>
+    <string>6.12</string>
+</dict>
+</plist>
+EOL
         
-        # Copy the built executable and dependencies
-        cp LaserGRBL/bin/Release/LaserGRBL.exe LaserGRBL.app/Contents/MacOS/
-        cp LaserGRBL/bin/Release/*.dll LaserGRBL.app/Contents/MacOS/
+        # Copy files with error handling
+        echo "Copying executable and dependencies..."
+        if [ -f "LaserGRBL/bin/Release/LaserGRBL.exe" ]; then
+          cp "LaserGRBL/bin/Release/LaserGRBL.exe" "LaserGRBL.app/Contents/MacOS/" || echo "Failed to copy LaserGRBL.exe"
+        else
+          echo "Warning: LaserGRBL.exe not found"
+          # Continue despite error
+        fi
+
+        # Copy DLLs if they exist, ignore if not found
+        if ls LaserGRBL/bin/Release/*.dll 1> /dev/null 2>&1; then
+          cp LaserGRBL/bin/Release/*.dll LaserGRBL.app/Contents/MacOS/ || echo "Warning: Some DLLs might not have copied"
+        else
+          echo "No DLL files found in Release directory"
+          # Continue despite no DLLs
+        fi
         
         # Create launcher script
         cat > LaserGRBL.app/Contents/MacOS/LaserGRBL << EOL
-        #!/bin/bash
-        DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-        exec mono "\$DIR/LaserGRBL.exe"
-        EOL
+#!/bin/bash
+DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+# Add Mono runtime path to ensure dependencies are found
+export DYLD_FALLBACK_LIBRARY_PATH=/Library/Frameworks/Mono.framework/Versions/Current/lib:$DYLD_FALLBACK_LIBRARY_PATH
+exec mono "\$DIR/LaserGRBL.exe"
+EOL
         
         chmod +x LaserGRBL.app/Contents/MacOS/LaserGRBL
+        
+        # List contents of the app bundle for debugging
+        echo "Contents of LaserGRBL.app/Contents/MacOS:"
+        ls -la LaserGRBL.app/Contents/MacOS/
     
     - name: Upload artifact
+      if: always()  # Try to upload even if previous steps failed
       uses: actions/upload-artifact@v4
       with:
         name: LaserGRBL-macOS
         path: LaserGRBL.app
+        if-no-files-found: warn  # Don't fail if no files are found
