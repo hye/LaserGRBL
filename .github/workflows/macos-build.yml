@@ -1,0 +1,76 @@
+name: MacOS Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Mono
+      run: |
+        brew install mono
+        brew install nuget
+    
+    - name: Setup MSBuild
+      run: |
+        echo "MONO_PATH=/Library/Frameworks/Mono.framework/Versions/Current/lib/mono/4.5" >> $GITHUB_ENV
+        echo "PATH=$PATH:/Library/Frameworks/Mono.framework/Versions/Current/bin" >> $GITHUB_ENV
+    
+    - name: Restore NuGet packages
+      run: nuget restore LaserGRBL.sln
+    
+    - name: Build solution
+      run: |
+        msbuild /p:Configuration=Release /p:Platform="Any CPU" LaserGRBL.sln
+    
+    - name: Create app bundle
+      run: |
+        mkdir -p LaserGRBL.app/Contents/MacOS
+        mkdir -p LaserGRBL.app/Contents/Resources
+        
+        # Create Info.plist
+        cat > LaserGRBL.app/Contents/Info.plist << EOL
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleIdentifier</key>
+            <string>com.lasergrbl.app</string>
+            <key>CFBundleName</key>
+            <string>LaserGRBL</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleExecutable</key>
+            <string>LaserGRBL</string>
+            <key>CFBundleIconFile</key>
+            <string>LaserGRBL.icns</string>
+        </dict>
+        </plist>
+        EOL
+        
+        # Copy the built executable and dependencies
+        cp LaserGRBL/bin/Release/LaserGRBL.exe LaserGRBL.app/Contents/MacOS/
+        cp LaserGRBL/bin/Release/*.dll LaserGRBL.app/Contents/MacOS/
+        
+        # Create launcher script
+        cat > LaserGRBL.app/Contents/MacOS/LaserGRBL << EOL
+        #!/bin/bash
+        DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+        exec mono "\$DIR/LaserGRBL.exe"
+        EOL
+        
+        chmod +x LaserGRBL.app/Contents/MacOS/LaserGRBL
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: LaserGRBL-macOS
+        path: LaserGRBL.app
